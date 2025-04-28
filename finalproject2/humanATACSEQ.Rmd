@@ -2,7 +2,7 @@
 title: "Human ATACSEQ"
 author: "RO"
 date: "4/28/2025"
-output: html_document
+output: github_document
 editor_options: 
   chunk_output_type: console
 ---
@@ -107,14 +107,6 @@ unique_to_dox_human <- suppressWarnings(find_my_peaks(human_dox_non_dox_ov, dox_
 print(c("This is how many peaks are unique to dox condition", length(unique_to_dox_human)))
 ```
 
-## Summary of non-doxycycline and doxycycline overlaps 
-
-### Result: Almost all peaks common in dox were also present in non-dox
-### Result: X dox common peaks of the X non-dox peaks overlapped (X%)
-### Result: X peaks found in non-dox that were not found in dox common
-### Result: X unique peaks in dox and not present in non-dox
-### Result: Overall bias to more non-dox specific peaks (could it be due to sample num?)
-
 ## 2 Creating mouse gene, lincrna, mRNA annotation GRange objects
 Here I am going to create GRange objects of genome annotations from 
 Gencode hg38. Specifically we will create gene annotation GRanges and 
@@ -162,7 +154,7 @@ print(c("This is how many dox_unique peaks overlapped gene promoters", length(hu
 
 # Now find same gene_id in RNAseq resuts
 # Loading RNAseq results from 06_Differential_expression_analyses
-load("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/human_DESEQ_results.rdata")
+load("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/human_DESEQ_results.RData")
 
 # filter significant genes from RNAseq "filtered_res_df" to non-dox unique promoter overlaps
 # res df and filtered res df are the results we need to use (filtered by padj)
@@ -180,21 +172,14 @@ print(c("this is how many genes overlap between RNAseq and ATACseq non-dox peaks
 # 2043 genes had a peak at zero time point but peaks disappeared after dox treatment
 ```
 
-Number of genes overlap between RNAseq and ATACseq non-dox peaks: `r length(human_sig_rnaseq_atac_dox)
-
-
-## Summary:
-### Result: 4086 non-dox peaks overlap gene promoters out of X (X%)
-### Result: 2 dox peaks overlap gene promoters out of X (X%) 
-### Result: 208 and 2043 genes had overlap with genes that also changed by RNAseq
-### Overall: shows our overlap approaches worked but not great for finding differential peaks
+print(c("Number of genes overlap between RNAseq and ATACseq non-dox peaks:",length(human_sig_rnaseq_atac_dox)))
 
 ### WARNING: Visual inspection of peaks does not find this approach convincing
 Importing bigWig files and peak calls showed very little convincing data that
 peaks were changing in dox and non-dox conditions. Does show good overlaps with 
 gene annotations so approach is working well.
 
-## 3 Use DESEQ2 to find out if peaks are changing in dox and non-dox conditions
+## 3.1 Use DESEQ2 to find out if peaks are changing in dox and non-dox conditions
 The overlap analysis did not contain statistical analysis and is a logical approach
 that ended up not being that compelling based on raw data. So now we will use a 
 statistical approach DESEQ2 to compare peak read counts across samples of dox and non-dox conditions. To do so we will use consensus peaks (any peak called in any condition) and feature counts of each consensus peak to be used as input into DESEQ2 for differential expression of peak counts.
@@ -250,7 +235,7 @@ human_atac_dds_condition <- suppressWarnings(DESeq(human_atac_dds_condition))
 
 ```
 
-## 3.1 Extracting and analyzing DESEQ2 results
+## 3.2 Extracting and analyzing DESEQ2 results
 Creating a dataframe with p-vlaues and lfc etc 
 ```{r extracting DESEQ2 results, dependson="previous_chunk"}
 
@@ -271,14 +256,9 @@ human_atac_lfc_condition <- merge(human_atac_lfc_condition,
                   by = "interval_id")
 
 ```
-![DESESEQ2 ATAC peaks visualized in IGV](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/igv_snapshot.png)
-Result: Yeah these all look the same, which is consistent with the 58,654 common peaks between non-dox and dox samples found earlier
 
-Result: Not very convincing
-
-##### (h) analyzing results of DESEQ on ATACseq peak counts
-Now we will see how many peaks had a padj < 0.05 and 
-other features of our analyses!
+## 3.3 Analyzing results of DESEQ on ATACseq peak counts
+Now we will see how many peaks had a padj < 0.05!
 
 ```{r analysis of DESEQ2 on ATAC peak counts, dependson="previous_chunk"}
 # padj histogram
@@ -298,24 +278,6 @@ ggplot(human_atac_lfc_condition, aes(x = pvalue)) +
        y = "Frequency") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
-
-# log2foldchange histogram
-ggplot(human_atac_lfc_condition, aes(x = log2FoldChange)) +
-  geom_histogram(binwidth = 0.1, fill = "steelblue", color = "white") +
-  labs(title = "Distribution of Human DESEQ2/ATAC log2 Fold Changes",
-       x = "log2 Fold Change",
-       y = "Frequency") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-# histogram of log-transformed base mean (because the values are incredibly small)
-ggplot(human_atac_lfc_condition, aes(x = baseMean)) +
-  geom_histogram(fill = "steelblue", color = "white") +
-  labs(title = "Distribution of Base Mean",
-       x = "Base Mean",
-       y = "Frequency") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
 ```
 
 ![histogram of padj values](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/humandeseq2atacpadj.png)
@@ -324,5 +286,9 @@ ggplot(human_atac_lfc_condition, aes(x = baseMean)) +
 ![histogram of p values](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/humandeseq2atacpvalues.png)
 # some p values are significant but no padj values are...
 
-![histogram of base mean](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/humandeseq2atacbasemean.png)
-# all incredibly low (could indicate low raw counts or sparse ATACseq data)
+### Result: No peaks are significant by padj value.
+
+### Result: Doxycyline does not significantly affect chromatin accessibility.
+#### Conclusion: There are ~60k peaks common across all samples, and those peaks did not signficantly change from doxycyline exposure. However, RNA gene expression changed for 27 genes, so doxycyline could be influencing post transcriptional or transcriptional changes but not epigenetic.
+
+## Bonus question: Are the RNA regulatory events (e.g. differential expression) biased toward genes with open chromatin? Will be answered soon...
