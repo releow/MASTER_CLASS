@@ -1,0 +1,344 @@
+---
+title: "Human DESeq"
+author: "ReAnna Owens"
+date: "3/17/2025"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#Objective: Run DESEQ2 on human data
+
+#Raw data file path: /scratch/Shares/rinnclass/MASTER_CLASS/DATA/human_DOX
+
+```{r library setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(IRanges)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(purrr)
+library(magrittr)
+library(pheatmap)
+library(textshape)
+library(Rcpp)
+library(DESeq2)
+```
+
+```{r loading and cleaning up count data}
+# We need to make the function write to an output object. To do so we use the 
+# <- assisgnement operator, here we are calling the salmon merged gene counts "counts_matrix"
+# Then we will call the read.table() function that first requires a file path to the counts in quotes
+# Note that in R functions follow with () where the parameter inputs are placed.
+# Then we will call up different parameters with a comma, in this case header = TRUE, row.names =1
+hDOX_counts <- read.table("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/DATA/HUMAN/salmon.merged.gene_counts.tsv", header=TRUE, row.names=1)
+
+# Nice, now we have an object called counts_matrix in our Environment Panel (top right)
+
+# There are time points here that don't exist for mouse data, so these should be removed
+hDOX_counts <- hDOX_counts %>%
+  select(gene_name, gfp_0_1, gfp_0_2, gfp_0_3, gfp_12_1, gfp_12_2, gfp_12_3, gfp_24_1, gfp_24_2, gfp_24_3, gfp_48_1, gfp_48_2, gfp_48_3, gfp_96_1, gfp_96_2, gfp_96_3)
+
+```
+
+# 2) Making a dataframe of gene_id and gene_name
+Now let's make a table of gene_id and gene_name from the first two columns of counts_matrix
+The reason being that the gene_id is a unique identifying number and the gene_symbol is more intuitive name.
+We will use this a lot throughout our analyses.
+
+Note: that the gene_id is currently in a "meta" format so we need to move it into the table.
+To do this we will use the rownames function
+```{r create g2s object}
+
+# Creating a dataframe with gene_id and gene_symbol
+# note creating columns with name = data
+g2s <- data.frame(gene_id = rownames(hDOX_counts), gene_symbol = hDOX_counts[ , 1])
+#first value is rows, second value is commas in brackets
+
+```
+
+
+```{r loading and cleaning up count data}
+# The first two columns are gene_id and gene_name
+# Those will be very handy let's make an object of these
+
+g2s <- data.frame(
+  gene_id = rownames(hDOX_counts),
+  gene_name = hDOX_counts[, 1]
+)
+
+# Note that rows or columns in black are "meta" meaning not really part of the matrix - just a label of sorts
+# Note that there is a column with characters for gene name - we want a pure number matrix, but can have meta labels.
+# Let's remove the gene name column for now and we will bring it back later.
+
+# removing gene names by indexing rows and columns via object[ rows, columns ]
+hDOX_counts <- hDOX_counts %>% 
+  select(-gene_name)
+
+# turning into a matrix using as.matrix() function
+hDOX_counts <- as.matrix(hDOX_counts) 
+
+# Rounding the numbers with the round() function
+hDOX_counts_rounded <-round(hDOX_counts)
+
+# Note meta nature of cols and rows
+
+```
+
+```{R filtering counts to items greater than 1}
+
+# Filtering so Deseq is not getting too many 0's for normalization
+hDOX_counts_filtered <- hDOX_counts_rounded[rowSums(hDOX_counts_rounded) > 1, ]
+
+## Check out values of counts_matrix and counts_filtered in Environment panel (top right)
+# How many genes were filtered out by this indexing? Hint compare counts_matrix_rounded with counts_filtered
+
+```
+
+```{R colData file for DESEQ2}
+# First we will create a dataframe from counts matrix that includes all the column names
+# To do this we call the data.frame() function and inside make col called sample_id
+# that is equal to the names of the columns in count matrix (e.g., WT_0_1)
+human_deseq_samples <- data.frame(
+  sample_id = colnames(hDOX_counts))
+
+# There is good information in each sample_id and we can use code to separate out.
+# First we will make an object called "split_values" to split sample_id by any underscore
+# Note we are indexing into deseq_samples using '$' to denote index $column_name
+# Note we use the function strsplit() to go into sample_id col and split at " _ "
+split_values <- strsplit(human_deseq_samples$sample_id, "_")
+```
+
+# We just created a new dataframe to input our samples into DESEQ2
+Note we used the sample_id to keep track of the original naming
+This helps with reproducibility for tracking names across code.
+Let's keep using this practice and get more sample info from sample_id
+
+# 2) Learning Rfuncitons & indexing to retreive name info
+```{R colData file for DESEQ2}
+# Now we are going to learn another key function "sapply()"
+# This is essentially a built in for loop to go over all rows and perform the same function.
+# So here we will go through each row of split_values and run a "generic function(x)" 
+# We will then retain the second item which is the time point value in sample_id
+time_values <- sapply(split_values, function(x) x[[2]])
+
+# Similar to above we are using sapply to grab the third fragment in split_values
+# after two breaks at each "_" there are three parts - here we are grabbing the 3rd 
+# NOTE indexing the function of x, which number from the split to a specific number with [[ ]]
+replicate_values <- sapply(split_values, function(x) x[[3]])
+
+# Ok now we can do more indexing and make more columns in our deseq_samples dataframe!
+# The $ can allow you to index into a specific column or even create a new one.
+# so we are making a new column by adding $time_point onto deseq_sample. 
+# Then we fill this column by using the assignment operator to place time points in
+human_deseq_samples$time_point <- time_values
+
+# Now let's add another column for replicate
+human_deseq_samples$replicate <- replicate_values
+
+```
+
+# 3) Factoring columns
+```{R factoring timepoint and replicate column}
+
+human_deseq_samples$time_point <- factor(human_deseq_samples$time_point)
+human_deseq_samples$replicate <- factor(human_deseq_samples$replicate)
+
+```
+
+# 4) Save the sample sheet
+```{r saving sample sheet}
+
+save(human_deseq_samples, file = "/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/human_deseq_samples.RData")
+
+```
+
+# (1) first run DESeq2 by creating a dds (DESEQ Data Structure) 
+
+```{r run DEseqDataSetFromMatrix }
+
+dds <- DESeqDataSetFromMatrix(countData = hDOX_counts_filtered,
+                              colData = human_deseq_samples,
+                              design = ~ time_point)
+```
+
+# Now run DESeq function that does all the magic !
+```{r run DEseqDataSetFromMatrix }
+
+dds <- DESeq(dds)
+
+```
+
+```{r results}
+
+# resultsNames function retreives names of results
+resultsNames(dds)
+
+# Nice we see this output:
+# "Intercept" "time_point_12_vs_0" "time_point_24_vs_0" "time_point_48_vs_0" "time_point_96_vs_0"
+# DESEQ found genes differential expression values for each time point relative to 0 time point.
+
+```
+
+#  Normalize counts (rlog function)
+This basically is rank counts normalized to std error in replicates.
+```{r rlog }
+rlog_counts <- rlog(dds, blind = TRUE)
+```
+
+# now we retrieve the values using the "assay" function that converts to rlog_counts
+```{r}
+rlog_counts_matrix <- assay(rlog_counts)
+
+```
+
+# Finally, let's save this rlog matrix to use in our future analyses and plotting.
+We will save this as R Data Structure .rds -- this will keep the object stored properly
+to be loaded into the environment to use for downstream analyses.
+
+```{r}
+
+write_rds(rlog_counts_matrix, "/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/rlog_counts_hDOX.rds")
+
+```
+
+```{r turn the counts matrix into integer}
+
+hDOX_counts_integer <- round(hDOX_counts)
+
+```
+
+```{r checking that sample sheet and counts match rows and cols respectively}
+
+# Check ordering
+
+stopifnot(all(colnames(hDOX_counts_integer) == rownames(human_deseq_samples$sample_id)))
+
+# Nice our columns in the counts are the same as rows in sample_id
+
+```
+
+# 5 Compile all results 0-vs-12, 0-vs-24, 0-vs-48, 0-vs-96
+First we are going to make a datframe structure to store the results
+# Note this is a common strategy before a for-loop : make file to populate
+
+```{r viewing results and making a data frame to compile all results from each time}
+
+# Let's find the names of the results we want
+result_names <- resultsNames(dds)
+
+# Let's get rid of intercept
+results_names <- result_names[-1]
+view(results_names)
+
+# Now the empty data frame with values we want to grab from results
+
+res_df <- data.frame("gene_id" = character(), 
+                     "baseMean" = numeric(), 
+                     "log2FoldChange" = numeric(), 
+                     "lfcSE" = numeric(),
+                     "stat" = numeric(),
+                     "pvalue" = numeric(),
+                     "padj" = numeric(),
+                     "gene_name" = character(),
+                     "result_name" = character())
+
+view(res_df)
+
+```
+
+# 6 FOR-LOOP: for-loop to put the values for each time point analysis
+```{r Learning for-loops to compile all results from all time points}
+
+# Let's figure out each step - for loops are common practice so let's get to know them
+
+for(i in 1:length(results_names)) {
+  # grabbing the result name for i in for loop - will repeat for all result names
+  results_name <- results_names[i]
+  # grabbing the results using DESEQ2 results function for time point i
+  res <- results(dds, name = results_name)
+  # creating a temporary results data frame in the for loop memory
+  tmp_res_df <- res %>% 
+    # converting this to dataframe
+    as.data.frame() %>%
+    # Moving the gene_id into a column now called gene_id
+    rownames_to_column("gene_id") %>%
+    # Merge in g2s (by gene_id)
+    merge(g2s) %>%
+    # Add a column to track result name for i
+    mutate(result_name = results_name)
+  # This will keep adding new results (as rows) for each additional i in for loop
+  res_df <- bind_rows(res_df, tmp_res_df)
+  
+}
+
+# Let's take a look at what we got !
+view(res_df)
+```
+# Result: we now have all our deseq2 results in res_df object !
+
+```{r checking NAs}
+# Checking NAs
+  sum(is.na(res_df$padj))
+  
+  # If we do want to clear them out:
+NoNA <- complete.cases(res_df)
+```
+
+# saving results in res_df
+```{r saving our results data frame}
+save(res_df, file = "/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/time_point_res_df.RData")
+# let's also save our DDS
+save(dds, file = "/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/dds_time_point_human.RData")
+```
+
+# First let's filter to find genes that significantly changed across time points
+For this we will use the filter function in baseR
+
+
+```{r filter time point to padj < 0.05}
+
+filtered_res_df <- res_df %>%
+  filter(padj < 0.05)
+
+# Wow we can see a major reduction in our dataframe
+
+```
+
+# Now let's see what happens when we filter for fold change across time as well 
+```{r filtering Padj < 0.05 and LFC abs(1)}
+
+filtered_res_df_2 <- filtered_res_df %>%
+  filter(padj < 0.05, abs(log2FoldChange) > 1)
+
+```
+
+# How many unique genes does this represent?
+```{r how many unique genes are in the significant results df?}
+
+human_sig_genes <- unique(filtered_res_df_2$gene_id)
+```
+# Result (again keeping track of good results)
+# Result: There are X unique genes that change across time (padj < 0.05 log2 > 1)
+
+# Lets do gene pathway analysis on the significant genes affected by dox across time
+```{r getting gene list as data frame and then doing ontology analysis}
+# printing out the gene_symbol column 
+human_genes <- cat(paste(filtered_res_df_2$gene_name, collapse = "\n"))
+
+# as data frame:
+human_genes <- as.data.frame(filtered_res_df_2$gene_name, collapse = "\n")
+# Let's make sure to only get the unique names
+human_genes <- unique(human_genes)
+
+# Renaming the column (handy code that is used a lot :)
+human_genes <- human_genes %>% 
+  rename(gene_name = `filtered_res_df_2$gene_name`)
+
+# Now let's write this out and do gene enrichment analysis
+write.table(human_genes["gene_name"], row.names = FALSE, col.names = FALSE, "/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/human_gene_names.csv")
+
+# copy and paste into EnrichR 
+#https://maayanlab.cloud/Enrichr/
+```

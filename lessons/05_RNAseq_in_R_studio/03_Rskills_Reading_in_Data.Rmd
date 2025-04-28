@@ -1,0 +1,178 @@
+---
+title: "Deseq2_mouse_Dox_data"
+author: "JR"
+date: "2024-01-12"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Goal to get our essential files in order to run deseq2!
+# Oh and to learn some basic R skills towards our goals!
+The input to DESEQ2 is going to want "counts" these came from the program
+Salmon from the NF_CORE pipeline output. 
+
+# Refresher of where is my data is here:
+00_Where_is_R_data.Rmd
+#my data is in ...reanna/MASTER_CLASS/
+Salmon calculates the number of reads over a gene. We also need to consider which 
+version of the gene we want. Genes come in different "isoforms" which have extra or less bits
+of RNA added to them. These annotations are a lot of work and difficult, but Salmon makes this easier!
+
+
+# More on salmon transcript quants, this is a basic outline of how Salmon works 
+Especially if you wanted to use it outside NF_CORE pipeline for RNAseq
+https://combine-lab.github.io/salmon/getting_started/
+
+For this we will use "merged_salmon_gene_counts" that gives
+the representative version of a gene that is being detected as expressed in the samples (in this case mESCs exposed to dox).
+This is just to note that you can also try and determine how isoforms change over time - but to get started we will keep it 
+simple, thanks to the program Salmon that ran in our pipeline.
+
+# First things first: let's get the RNAseq counts for all the genes in our GTF input file to the RNAseq pipeline.
+The counts we want are called "salmon.merged.gene_counts.tsv" they are in your NF_CORE pipeline output directory:
+......./pipeline_output/star_salmon/
+
+Please locate where this directory is in your output (helpful hint: copy and paste path to location using pwd)
+
+# Our first R function : read.table
+This function in R alows us to read in a table. There are many ways to do this but we will start with the basics
+Functions also have parameters to input. in this case we have a header and will call that, and where the rownames start).
+
+Note that the <- sets a variable. 
+
+# Let's run our first function to get our salmon mergened gene counts in a table
+# 1) Read in and clean up counts table
+```{r loading and cleaning up count data}
+# Let's take a look at the read.table function
+?read.table
+
+# we need to make the function write to an output object. To do so we use the 
+# <- assisgnement operator, here we are calling the salmon merged gene counts "counts_matrix"
+# Then we will call the read.table() function that first requires a file path to the counts in quotes
+# Note that in R functions follow with () where the parameter inputs are placed.
+# Then we will call up different parameters with a comma, in this case header = TRUE, row.names =1
+counts_matrix <- read.table("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/data/salmon.merged.gene_counts.tsv", header=TRUE, row.names=1)
+
+# Nice, now we have an object called counts_matrix in our Environment Panel (top right)
+# Let's take a look 
+View(counts_matrix)
+```
+
+# 2) Making a dataframe of gene_id and gene_name
+Now let's make a table of gene_id and gene_name from the first two columns of counts_matrix
+The reason being that the gene_id is a unique identifying number and the gene_symbol is more intuitive name.
+We will use this a lot throughout our analyses.
+
+Note: that the gene_id is currently in a "meta" format so we need to move it into the table.
+To do this we will use the rownames function
+```{r create g2s object}
+
+# Creating a dataframe with gene_id and gene_symbol
+# note creating columns with name = data
+g2s <- data.frame(gene_id = rownames(counts_matrix), gene_symbol = counts_matrix[ , 1])
+#first value is rows, second value is commas in brackets
+# Let's save this using write.csv
+write.csv(g2s, "results/g2s.csv")
+```
+
+
+```{r loading and cleaning up count data}
+# The first two columns are gene_id and gene_name
+# Those will be very handy let's make an object of these
+
+g2s <- data.frame(
+  gene_id = rownames(counts_matrix),
+  gene_name = counts_matrix[, 1]
+)
+
+# Note that rows or columns in black are "meta" meaning not really part of the matrix - just a label of sorts
+# Note that there is a column with characters for gene name - we want a pure number matrix, but can have meta labels.
+# Let's remove the gene name column for now and we will bring it back later.
+
+# removing gene names by indexing rows and columns via object[ rows, columns ]
+# here we take all the rows and remove the first column with -1 ]
+counts_matrix <-counts_matrix[, -1] 
+# or 
+counts_matrix <- counts_matrix[, -which(names(counts_matrix) == "gene_name")]
+# or
+counts_matrix <- counts_matrix %>% 
+  select(-gene_name)
+
+# There are many ways to do the same thing - keeping column name is safer
+# IMPORTANT: if you run the [ , -1] again it will keep removing cols
+
+# turning into a matrix using as.matrix() function
+counts_matrix <- as.matrix(counts_matrix) 
+View(counts_matrix)
+
+# Rounding the numbers with the round() function
+counts_matrix_rounded <-round(counts_matrix)
+View(counts_matrix_rounded)
+
+# Note meta nature of cols and rows
+
+```
+
+# Nice now we have a good matrix of count values for each gene across all dox exposure times.
+Next we are going to filter the counts matrix to only include genes with any expression at any time.
+To do so we will learn how to index tables and use logical arguments - all in one line of code !
+
+counts_filtered <- counts_matrix_rounded[rowSums(counts_matrix_rounded) > 1,]
+
+# Here is what is going on in that one line of code - it's a lot, but good R skills :)
+(1) create object "counts_filtered" with assignment operator <-
+(2) we are going to index into "counts_matrix_rounded" using "[ ]" indexing.
+This basically means we are going into that object and anything between [ ] is what we want back
+(3) we call function rowSums() which sums the values across all rows (genes)
+(4) rowSums needs to know what to sum on which is counts_matrix_rounded inside the rowSums() function
+(5) We can add a logical argument as well. In this case any sum across a row that is greater than 1.
+(6) *** indexing is [rows,columns] so far we have just selected the rows we want. 
+To include all the columns we can just leave it blank after the comma.
+So in the end we have [rows, and all the columns originally present]
+
+# Let's filter to genes that have at least one value!
+
+# 3) Filtering counts 
+```{R filtering}
+
+# Filtering so Deseq is not getting too many 0's for normalization
+counts_filtered <- counts_matrix_rounded[rowSums(counts_matrix_rounded) > 1, ]
+
+## Check out values of counts_matrix and counts_filtered in Environment panel (top right)
+# How many genes were filtered out by this indexing? Hint compare counts_matrix_rounded with counts_filtered
+
+```
+
+# Well done we learned some Rskills while making input counts table and sample files !
+Now let's save all of our work ! We have made a few key objects:
+- counts filtered
+- counts_matrix 
+- deseq_samples
+
+We will start our next steps toward differential gene expression analysis with DESEQ2.
+So let's save them in a way we can easily reload in our next session.
+
+# 4) Saving data in .Rdata format!
+First by making a results folder
+Check your working directory and set accordingly :) !
+
+```{r saving env objects into .RData structure}
+
+save(counts_filtered, counts_matrix, g2s, file = "results/count_files.RData")
+# awesome - now we never have to load in consensus peaks again :)
+```
+
+# erase environment and reload!
+```{r reload}
+
+load("results/count_files.RData", verbose = T)
+# super handy 
+```
+
+# congratulations you have made some result files using Rskills !
+

@@ -1,0 +1,24 @@
+---
+title: "inclass_installs"
+output: html_document
+date: "2025-02-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#use install.packages for CRAN packages
+
+#library(rtracklayer)
+#library(IRanges)
+#library(ggplot2)
+#library(dplyr)
+#library(tidyr)
+#library(tibble)
+#library(readr)
+#library(purrr)
+#library(magrittr)
+#library(pheatmap)
+#library(textshape)
+#library(Rcpp)
+#library(matrixStats)

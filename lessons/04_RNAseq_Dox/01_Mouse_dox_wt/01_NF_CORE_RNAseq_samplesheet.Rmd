@@ -1,0 +1,74 @@
+---
+title: "Deseq2_mouse_Dox_data"
+author: "JR"
+date: "2024-01-12"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# The NF_CORE pipeline requires a sample_sheet
+
+Please see here for more details:
+https://nf-co.re/rnaseq/3.14.0/docs/usage
+
+Here you will find all the details needed for input into the RNAseq pipeline.
+The most critical aspect for now is the sample sheet.
+It must have the following headers:
+
+sample	fastq_1	fastq_2	strandedness
+
+Sample: is the name you want to call your sample
+fastq_1: is the location of your "read 1" sequencing file
+fastq_2: is the location of your "read 2" sequencing file
+strandedness: in our case the data is unstranded. But if in the future you
+do stranded RNAseq you would put in "stranded" 
+
+Also note the "usage" instrcutions have you put a flag for location of this file:
+
+--input /filepath/to/sample/sheet
+This will go in our shell script that we will go over here:
+
+https://github.com/boulderrinnlab/MASTER_CLASS/blob/main/lessons/04_RNAseq_Dox/01_Mouse_dox_wt/03_shell_script.Rmd
+
+It used to be that the sample sheet had a column for replicates (we have 3 replicates in our data).
+
+Now you label the sample with the replicate number. The pipeline will then be able to do
+some analyses for you across replicates and sample names. Pretty smart !!
+
+
+# That's really it !
+
+Below is the sample sheet we will be using. 
+
+# HOWEVER please note these file paths won't work for you.
+You will need to make the file path directly to where you keep each file.
+
+# Also please note the key information is the file name in the fastq_1 and fastq_2 columns.
+
+Thus, your task is to make a note of which .fastq.gz file is for which samples.
+
+Then make the file path to those but remember to keep track of sample name and file name.
+So you know which sample is which ! For example, JR2707_R1 is for Wild Type (WT) sample at 0
+hours of dox and the 3rd replicate. 
+
+Hint: you can do this quite easily in excel. Save as .csv (comma seperate values) and you have 
+made it one step closer to running the pipeline !
+
+# Base sample sheet:
+sample	fastq_1	fastq_2	strandedness
+WT_0_3	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2707_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2707_R2.fastq.gz	unstranded
+WT_0_1	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2708_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2708_R2.fastq.gz	unstranded
+WT_0_2	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2710_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2710_R2.fastq.gz	unstranded
+WT_12_3	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2758_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2758_R2.fastq.gz	unstranded
+WT_12_1	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2762_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2762_R2.fastq.gz	unstranded
+WT_12_2	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2765_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2765_R2.fastq.gz	unstranded
+WT_24_3	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2730_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2730_R2.fastq.gz	unstranded
+WT_24_2	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2732_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2732_R2.fastq.gz	unstranded
+WT_24_1	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2741_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2741_R2.fastq.gz	unstranded
+WT_48_1	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2731_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2731_R2.fastq.gz	unstranded
+WT_48_3	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2737_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2737_R2.fastq.gz	unstranded
+WT_48_2	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2738_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2738_R2.fastq.gz	unstranded
+WT_96_2	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2706_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2706_R2.fastq.gz	unstranded
+WT_96_1	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2715_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2715_R2.fastq.gz	unstranded
+WT_96_3	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2716_R1.fastq.gz	/scratch/Shares/rinn/ML/mouse_wt_long_timecourse/JR2716_R2.fastq.gz	unstranded

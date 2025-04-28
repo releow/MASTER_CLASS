@@ -1,0 +1,230 @@
+---
+title: "02_DESEQ2_start_analysis"
+author: "JR"
+date: "2024-04-21"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DESeq2)
+library(readr)
+library(magrittr)
+library(tibble)
+library(dplyr)
+library(ggplot2)
+
+#BiocManager::install("apeglm")
+
+```
+
+```{r loading data}
+load("../05_RNAseq_in_R_studio/results/count_files.RData", verbose = T)
+load("../05_RNAseq_in_R_studio/results/deseq_samples.RData", verbose = T)
+```
+
+# Long mouse dox time course DDS
+```{r run DESEQ2}
+# create DDS
+mouse_long_dox_dds <- DESeqDataSetFromMatrix(countData = counts_filtered,
+                                                 colData = deseq_samples,
+                                                 design = ~ time_point)
+
+
+# Run DESEQ2 on DDS
+mouse_long_dox_dds <- DESeq(mouse_long_dox_dds)
+```
+
+# Let's look at the results
+```{r result names from DESEQ2}
+
+resultsNames(mouse_long_dox_dds)
+
+# Cool, we see a bunch of results of time_point_X_vs_0 
+# Those are our results !
+# We just don't want the intercept file
+```
+
+# Now let;s make result files for 0 hours versus 12 hours 
+The goal is to learn some key concepts from DESEQ2 results() function
+Then we will move on to comparing across all time points.
+But first let's get down to some fundamental analyses.
+
+```{r extracting results from DDS}
+# fist let's see how results work
+# contrast = c("time_point", "12", "0") specifies that you want to compare 
+# the "12" level of the "time_point" factor against the "0" level. 
+# Antoher reason why factoring our DESEQsamples file is importnat
+
+res_0 <- results(mouse_long_dox_dds, contrast = c("time_point", "12", "0"))
+view(res_0)
+
+# IMPORTANT: "time_point" here is the factored column and would be different
+# if you called this column differently in your sample file (deseq_samples)
+```
+
+# Here's a breakdown of the arguments above:
+"time_point" is the name of the factor (column) in your count data that you want to compare.
+"12" is the level of the factor that you want to compare against.
+"0" is the reference level of the factor (i.e., the baseline).
+
+
+# res_0 is an S4 object and abit confusing let's turn into a data frame:
+```{r making a dataframe of our results}
+res_0_df <- data.frame(time = 12, res_0)
+view(res_0_df)
+
+# That is a bit better - as a dataframe
+# But out gene_id is still in the "meta" 
+# lets move it into a column with rownames_to_column
+
+res_0_df <- rownames_to_column(res_0_df, "gene_id")
+view(res_0_df)
+```
+
+# We can notice that there are NAs in the padj column let's see how many with is.na() function
+```{r checking NAs}
+
+# counting NAs
+sum(is.na(res_0_df$padj))
+
+# How many genes in DF
+nrow(res_0_df)
+
+# what percentage
+sum(is.na(res_0_df$padj)) / nrow(res_0_df)
+
+# Yikes half our genes have NA for padj - let's deal with that later 
+# In the meantime is.na is really important way to check your data 
+# for character values that maybe intermingled with numeric - a problem
+# let's ignore for now :)
+```
+
+
+# Cool, now let's merge in the g2s to get the gene names
+We made a g2s and this is where it comes in handy !
+```{r merge in gene_name}
+# we need to merge g2s and res_0_df with a column that exists in both DFs = gene_id
+
+res_0_df <- merge(res_0_df, g2s, by = c("gene_id" = "gene_id"))
+view(res_0_df)
+# Or we could use left join or join 
+res_0_df <- left_join(res_0_df, g2s)
+view(res_0_df)
+# Let's orgnaize this so the gene name is next to gene_id
+res_0_df <- res_0_df[, c(1, 9, 2:8)]
+view(res_0_df)
+# cool now we can actually start to do some analysis for the 
+#  0 vs 12 hour time point.
+
+```
+
+# Now let's practice filtering this data frame on padj adn lfcSE
+This is a good opportunity to learn some tidyverse with the pipe
+%>% function
+```{r filtering our results to significant Padj < 0.05}
+
+# filter() function for padj
+# note that %>% pushes data to next function (filter in this case)
+filtered_res_0_df <- res_0_df %>%
+  filter(padj < 0.05)
+
+nrow(filtered_res_0_df)
+# cool now we see 720 genes with padj < 0.05
+
+# let's filter on both padj and log2FoldChange
+# these arguments are simply added by a , and could have even more !
+filtered_res_0_df_2 <- res_0_df %>%
+  filter(padj < 0.05, abs(log2FoldChange) > 1)
+
+nrow(filtered_res_0_df_2)
+
+# Interesting this is now only 42 genes !! 
+# That is a special number :)
+
+```
+
+# let's take a look at what "type of genes" are changing at 12 hours.
+# Let's use res_0_df_2
+
+We can extract the gene names and then do gene ontology
+```{r extracting sig genes at P <0.05 and LFC > abs(1)}
+
+# printing out the gene_symbol column 
+cool_genes <- cat(paste(filtered_res_0_df_2$gene_symbol, collapse = "\n"))
+
+cool_genes_12 <- as.data.frame(filtered_res_0_df_2$gene_symbol, collapse = "\n")
+
+# copy and paste into EnrichR 
+#https://maayanlab.cloud/Enrichr/
+
+
+```
+# Interesting, seems like our genes are involved in mitochonrial functions
+Nice, we just started analyzing significant genes that respond to dox at 12 hours !!
+
+We will dive much deeper into plotting as we go, but for now a standard first plot
+is a volcano plot. Let's make one !
+
+# volcano plot of genes significant at 12 hours
+```{r for fun making a volcano plot}
+
+library(ggplot2)
+
+ggplot(filtered_res_0_df_2, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point() +
+  theme_classic() +
+  labs(x = "Log2 Fold Change", y = "-Log10 Adjusted P-value") +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  geom_vline(xintercept = c(-1, 1), color = "blue")
+
+```
+# congratulations you have started your fisrt RNAseq analyses !
+# Let's dig in more in the next lesson
+
+###################
+Bonus Exercise 
+###################
+
+# let's do the same thing for 0 vs 96 hours our latest time point.
+```{r}
+
+res_96 <- results(mouse_long_dox_dds, contrast = c("time_point", "96", "0"))
+res_96_df <- data.frame(time = 96, res_96)
+res_96_df <- rownames_to_column(res_96_df, "gene_id")
+res_96_df <- merge(res_96_df, g2s, by = c("gene_id" = "gene_id"))
+
+filtered_res_96_df <- res_96_df %>%
+  filter(padj < 0.05)
+
+filtered_res_96_df_2 <- res_96_df %>%
+  filter(padj < 0.05, abs(log2FoldChange) > 1)
+
+cool_genes_96 <- as.data.frame(filtered_res_96_df_2$gene_symbol, collapse = "\n")
+
+```
+
+# Plotting
+```{r}
+
+library(ggplot2)
+
+ggplot(filtered_res_96_df_2, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point() +
+  theme_classic() +
+  labs(x = "Log2 Fold Change", y = "-Log10 Adjusted P-value") +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  geom_vline(xintercept = c(-1, 1), color = "blue")
+
+
+```
+
+
+# determining overlap
+```{r}
+overlap_genes <- intersect(cool_genes_96, cool_genes_12)
+
+overlap_genes <- cool_genes_12 %in% cool_genes_96
+```

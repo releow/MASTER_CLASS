@@ -1,0 +1,244 @@
+---
+title: "01_bash-ing_around"
+date: "1/31/2024"
+output: github_document
+---
+
+# All code to follow along can be found here:
+https://github.com/boulderrinnlab/MASTER_CLASS/blob/main/lessons/01_bash/01_bashing_around.Rmd
+
+# Youtube video for this class is here :
+
+Let's start with some of the very basics of BASH to navigate servers and your command line.
+
+# Wait a minute ! What is BASH :)? 
+BASH is an application to run UNIX or LINUX commands. So essentially we are about to learn
+UNIX/LINUX commands and BASH is an application in our terminal. It opens a way to interface and
+run these commands. Don't worry if it is confusing - here we will see how to use it - then
+we will get more into this later in class. However, for now this is your first use of commands 
+in a programming language !!
+
+# But if your curious now you can get a good description here:
+https://opensource.com/resources/what-bash
+
+
+# First commands:
+cd - to change directories
+ls - list the files
+pwd - tells you the pathway you are currently at (very useful actually!)
+
+```{BASH}
+
+cd ~/
+ls
+pwd
+
+# Wait could there be more? let's try:
+
+ls -lah
+```
+-l for long
+-a for all
+-h human readable
+Basically I typically always use these flags
+
+
+# let's create your directory
+
+```{BASH}
+cd ~/
+
+mkdir NAME_of_dir
+
+# This is your new home where we will be working all of class !
+cd NAME_of_dir
+
+```
+
+# Every function has a manual entry (man)
+```{BASH}
+
+man mkdir
+# Press q to escape
+
+```
+
+Now let's make a new file using touch
+
+```{Bash}
+
+touch test.txt
+ls
+
+```
+woah a new file shows up! What is in it? lets use Nano
+
+```{Bash}
+
+nano test.txt
+# type whatever
+# ctrl x, Y for yes -- then enter -- to exit nano
+
+```
+
+Now let's take a look at the file with cat
+
+```{Bash}
+cat test.txt
+
+# here are the top 10 lines
+
+head -10 test.txt
+
+# bottom lines
+
+tail -10 test.txt
+```
+
+
+Let's make another file and combine two files
+This is done by the "cat" command
+
+```{BASH}
+
+# First let's test the remove command (using rm command) for the test.txt file 
+# then let's make a new one.
+
+# removing test.txt
+rm test.txt
+
+# making new test.txt file with nano
+touch test.txt
+nano test.txt
+"add whatever text"
+
+```
+
+Now we will make a second file and merge the two files into one file with cat.
+
+```{BASH}
+
+nano test2.txt
+# type whatever
+
+# merging the two files
+cat test.txt test2.txt > test3.txt
+
+# let's see what we get with "cat"
+cat test3.txt
+
+```
+
+let's move the files to a new file path
+Note that the file is not copied just moved to a new file path
+
+```{Bash}
+
+# making directory to move the files
+mkdir practice
+
+# moving the files
+mv test2.txt practice
+mv test3.txt practice
+mv test.txt practice
+
+# let's see what we have with "ls"
+ls
+
+# Alternatively If we want to copy the file we can use "cp"
+# note that if you use "cp" the file will be duplicated whereas "mv" just changes the file path.
+
+nano test4.txt
+# type something 
+
+cp test4.txt practice
+# see if it's there 
+cd practice
+ls
+# good 
+# now go back up one directory
+cd ..
+ls
+# we have two copies of test4 !
+# note mv simply changes file path and cp recreates the entire directory.
+
+```
+
+Nice and tidy. However that could be quite laborious if you wanted to move a bunch of files. So we can use WILDCARDS
+
+# more information on wild cards can be found here:
+http://www.linfo.org/wildcard.html
+
+```{BASH}
+
+# let's start with with the wild card "*" which means anything that has that text in the name
+# This will move any file that ends in .txt the star means anything counts.
+
+mv *.txt practice
+
+# what happened? let's use "ls"
+ls
+
+```
+
+Now let's say you want to move the files back to the original directory:
+
+```{BASH}
+
+cd practice
+# note that "../" means one directory above the current one and "../../" prefix means two dir above
+mv *.txt ../
+```
+
+Another handy short cut is to see how big a folder is. 
+Often you are downloading to or working on a folder and need to see if it became bigger or smaller. 
+This is best done wtih disk usage "du"
+
+```{BASH}
+# change file path to home directory
+cd ~/practice
+  
+# checking on the size of this directory 
+du -sh ~/
+  
+```
+The -sh flag is for "s"ummary and "h"uman readable
+
+# You may have just realized it's important to cancel commands :) !!
+That is just ctrl-c :)
+
+
+|||||||||||||||||||||||||||||||||
+The pipe
+|||||||||||||||||||||||||||||||||
+
+
+The pipe and xargs are two of the most elegant aspects of BASH. Let's try something
+simple, so simple it may end up being used quite often :)
+
+Many times a folder you are indexing may have hundreds or thousands of files.
+There is no way we want to count them manually. So we can use the pipe to list (ls) 
+the files in a directory and pipe it to word count (wc) to count the number of files.
+
+Let's see:
+
+```{BASH}
+
+cd ~/
+ls | wc -l
+
+```
+Here the list output becomes the standard input to the word count owing to the pipe.
+Or the pipe passed along the standard output of ls to standard input of wc. The 
+-l flag is for the line count. 
+
+#######################
+Exercise
+#######################
+
+Use chat GPT to explore the <grep> function
+
+A) GREP a specific word and case from your text3.txt file
+B) GREP a the first letter using wild card
+
+

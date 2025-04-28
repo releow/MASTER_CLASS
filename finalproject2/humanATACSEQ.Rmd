@@ -1,0 +1,328 @@
+---
+title: "Human ATACSEQ"
+author: "RO"
+date: "4/28/2025"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/util/00_our_first_function_lesson.R")
+library(GenomicRanges)
+library(IRanges)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(readr)
+library(ggplot2)
+library(purrr)
+library(magrittr)
+library(pheatmap)
+library(textshape)
+library(Rcpp)
+library(DESeq2)
+library(stringr)
+```
+
+# Objective: Determine if doxycycline exposure changes chromatin accessibility in humans
+
+# Approach:
+## 1.1 Loading in ATACseq peak files with custom function import_human_peaks (list of GRanges output)
+
+```{r loading in peak files to list of GRanges}
+
+# establishing peak path to the dir with MACS2 output peak files from NF_CORE ATACseq pipeline
+
+human_peak_path <- "/scratch/Shares/rinnclass/MASTER_CLASS/DATA/human_atacseq"
+
+# creating a file list also needed for import_peaks function to get sample name associated with file
+human_fl <- list.files(human_peak_path, full.names = TRUE, pattern = ".broadPeak")
+
+# running import_human_peaks
+my_human_peaks <- import_human_peaks(human_consensus_file_path = human_peak_path)
+
+print("here are the number of peaks for each human sample")
+print(num_peaks <- sapply(my_human_peaks, length) %>% as.data.frame)
+```
+
+### Result: The number of peaks in these samples range from 90k-155k
+
+## 1.2 Finding number of peaks common in all samples using find_common_peaks custom function
+
+```{r finding common peaks in all samples, dependson="previous_chunk"}
+# run find_common_peaks function (no alterations needed)
+common_peaks <-  suppressWarnings(find_common_peaks(my_human_peaks))
+
+length(common_peaks)
+```
+
+### Result: There are 58,371 common peaks across all human samples. Visualization in IGV seems to confirm (see below).
+
+![Human peaks visualized in IGV.](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/igv_snapshot.png)
+
+## 1.3 Finding peaks unique to non-doxycyline and doxycycline conditions
+
+Non-doxycycline conditions (time point 0h):
+```{r non-doxycycline ATAC peaks, dependson="previous_chunk"}
+
+non_dox_human_samples <- my_human_peaks[grepl("novageneGFP_0h_REP", names(my_human_peaks))]
+
+non_dox_common_human_peaks <- suppressWarnings(find_common_peaks(non_dox_human_samples))
+
+print(c("This is how many peaks are common in non-doxycline conditions:", length(non_dox_common_human_peaks)))
+```
+
+Doxycycline conditions (all other time points):
+```{r doxycyline ATAC peaks, dependson="previous_chunk"}
+
+dox_human_samples <- names(my_human_peaks)[!grepl("_0$", names(my_human_peaks))]
+
+dox_human_peaks <- my_human_peaks[dox_human_samples]
+
+dox_common_human_peaks <- suppressWarnings(find_common_peaks(dox_human_peaks))
+print(c("This is how many peaks are common in doxycyline conditions",length(dox_common_human_peaks)))
+```
+
+Overlap of non-doxycyline and doxycycline conditions (to find peaks unique to each condition)
+```{r non-doxycycline vs doxycyline ATAC peaks, dependson="previous_chunk"}
+
+human_dox_compare_list <- list(non_dox = non_dox_common_human_peaks, dox = dox_common_human_peaks)
+
+human_dox_non_dox_ov <- suppressWarnings(find_common_peaks(human_dox_compare_list))
+
+print(c("This is how many peaks are common in both non-doxycyline and doxycyline conditions", length(human_dox_non_dox_ov)))
+
+# extracting peaks unique to each condition (non-dox vs. dox)
+
+# Peaks unique to non_dox:
+unique_to_non_dox_human <-suppressWarnings(find_my_peaks(human_dox_non_dox_ov, non_dox_common_human_peaks))
+
+print(c("This is how many peaks are unique to non-dox condition",length(unique_to_non_dox_human)))
+
+# Peaks unique to dox:
+unique_to_dox_human <- suppressWarnings(find_my_peaks(human_dox_non_dox_ov, dox_common_human_peaks))
+
+print(c("This is how many peaks are unique to dox condition", length(unique_to_dox_human)))
+```
+
+## Summary of non-doxycycline and doxycycline overlaps 
+
+### Result: Almost all peaks common in dox were also present in non-dox
+### Result: X dox common peaks of the X non-dox peaks overlapped (X%)
+### Result: X peaks found in non-dox that were not found in dox common
+### Result: X unique peaks in dox and not present in non-dox
+### Result: Overall bias to more non-dox specific peaks (could it be due to sample num?)
+
+## 2 Creating mouse gene, lincrna, mRNA annotation GRange objects
+Here I am going to create GRange objects of genome annotations from 
+Gencode hg38. Specifically we will create gene annotation GRanges and 
+their corresponding promoter region. These objects will be used for overlaps with ATAC peaks.
+```{r creating genome annotation GRanges, dependson="previous_chunk"}
+
+# Loading gencode genome annotation as GRanges 
+gencode_gr_human <- rtracklayer::import("/scratch/Shares/rinnclass/MASTER_CLASS/DATA/genomes/Homo_sapiens/Gencode/v38/gencode.v38.annotation.gtf")
+
+# all gene promoters
+gencode_genes_human <- gencode_gr_human[gencode_gr_human$type == "gene"] 
+human_gene_promoters <- promoters(gencode_genes_human, upstream = 2000, downstream = 2000)
+
+# mrna_genes
+human_mrna_genes <- gencode_genes_human[gencode_genes_human$gene_type %in% "protein_coding"]
+human_mrna_promoters <- promoters(human_mrna_genes, upstream = 2000, downstream = 2000)
+
+# lincrna_genes
+human_lincrna_genes <- gencode_genes_human[gencode_genes_human$gene_type %in% "lincRNA"]
+human_lincrna_gene_promoters <- promoters(human_lincrna_genes, upstream = 2000, downstream = 2000)
+
+# This is more reliable than looking at all peaks because these regions in the genome are more stable
+```
+
+## 2.1 Compare overlaps of dox and non-dox peaks with gene annotations
+Now we will overlap our dox and non-dox unique peaks with genome annotations (gene promoters). First we will find number of overlaps with gene promoters and then genes that had changed in RNAseq
+```{r dox and non-dox unique peak overalp gene promoters, dependson="previous_chunk"}
+
+# gr_list of promoters and peaks unique to non_dox condition
+human_gr_list_gene_promoter_non_dox_ov <- list(human_gene_promoters = human_gene_promoters, non_dox_peaks = unique_to_non_dox_human)
+
+human_non_dox_gene_promoter_ov <- suppressWarnings(find_common_peaks(human_gr_list_gene_promoter_non_dox_ov))
+
+print("This is how many non-dox_unique peaks overlapped gene promoters")
+length(human_non_dox_gene_promoter_ov)
+# 4086 genes had an overlap with an ATAC peak at the zero time point but not in dox treated samples
+
+# peaks unique to dox condition overlapped with gene promoters
+human_gr_list_gene_promoter_dox_ov <- list(human_gene_promoters = human_gene_promoters, dox_human_peaks = unique_to_dox_human)
+
+human_dox_gene_promoter_ov <- suppressWarnings(find_common_peaks(human_gr_list_gene_promoter_dox_ov))
+
+print(c("This is how many dox_unique peaks overlapped gene promoters", length(human_dox_gene_promoter_ov)))
+# 2 genes are unique to only dox
+
+# Now find same gene_id in RNAseq resuts
+# Loading RNAseq results from 06_Differential_expression_analyses
+load("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/genehomies/RESULTS/HUMAN/human_DESEQ_results.rdata")
+
+# filter significant genes from RNAseq "filtered_res_df" to non-dox unique promoter overlaps
+# res df and filtered res df are the results we need to use (filtered by padj)
+human_sig_rnaseq_atac_non_dox <- human_non_dox_gene_promoter_ov[human_non_dox_gene_promoter_ov$gene_id %in% human_filtered_res_df$gene_id]
+
+print(c("this is how many genes overlap between RNAseq and ATACseq non-dox peaks", length(human_sig_rnaseq_atac_non_dox)))
+# 208 genes have no peak at zero time point but peaks appeared after dox treatment
+
+print(c("Here are the gene names that overlap", human_sig_rnaseq_atac_non_dox$gene_name))
+
+# filter significant genes from RNAseq "filtered_res_df" to non-dox unique promoter overlaps
+human_sig_rnaseq_atac_dox <- human_non_dox_gene_promoter_ov[human_dox_gene_promoter_ov$gene_id %in% human_filtered_res_df$gene_id]
+
+print(c("this is how many genes overlap between RNAseq and ATACseq non-dox peaks", length(human_sig_rnaseq_atac_dox)))
+# 2043 genes had a peak at zero time point but peaks disappeared after dox treatment
+```
+
+Number of genes overlap between RNAseq and ATACseq non-dox peaks: `r length(human_sig_rnaseq_atac_dox)
+
+
+## Summary:
+### Result: 4086 non-dox peaks overlap gene promoters out of X (X%)
+### Result: 2 dox peaks overlap gene promoters out of X (X%) 
+### Result: 208 and 2043 genes had overlap with genes that also changed by RNAseq
+### Overall: shows our overlap approaches worked but not great for finding differential peaks
+
+### WARNING: Visual inspection of peaks does not find this approach convincing
+Importing bigWig files and peak calls showed very little convincing data that
+peaks were changing in dox and non-dox conditions. Does show good overlaps with 
+gene annotations so approach is working well.
+
+## 3 Use DESEQ2 to find out if peaks are changing in dox and non-dox conditions
+The overlap analysis did not contain statistical analysis and is a logical approach
+that ended up not being that compelling based on raw data. So now we will use a 
+statistical approach DESEQ2 to compare peak read counts across samples of dox and non-dox conditions. To do so we will use consensus peaks (any peak called in any condition) and feature counts of each consensus peak to be used as input into DESEQ2 for differential expression of peak counts.
+
+```{r create input files and run DESEQ2 on feature counts of consensus peaks from NF_CORE, dependson="previous_chunk"}
+
+# consensus peaks
+human_broad_consensus_peaks <- read.table("/scratch/Shares/rinnclass/MASTER_CLASS/DATA/human_atacseq/consensus_peaks.mLb.clN.annotatePeaks.txt",
+                             sep = "\t", header = TRUE)
+
+# consensus peak counts
+human_broad_consensus_counts <- read.table("/scratch/Shares/rinnclass/MASTER_CLASS/DATA/human_atacseq/consensus_peaks.mLb.clN.featureCounts.txt",
+                             sep = "\t", header = TRUE)
+
+# creating sample sheet "atac_samples" from file names (col names of consensus):
+rownames(human_broad_consensus_counts) <- human_broad_consensus_counts$Geneid
+
+human_broad_consensus_counts <- human_broad_consensus_counts %>%
+  dplyr::select(-c(Geneid, Chr, Start, End, Strand, Length))
+
+# cleaning up column names
+colnames(human_broad_consensus_counts) <- gsub(
+  "\\.mLb\\.clN\\.sorted\\.bam", 
+  "", 
+  colnames(human_broad_consensus_counts)
+)
+
+human_count_columns <- colnames(human_broad_consensus_counts)
+
+# creating the sample sheet for DESEQ by definition non-dox and dox conditions, and switching hours to minutes
+human_atac_samples <- data.frame(
+  sample = human_count_columns,
+  condition = ifelse(
+    grepl("_0h_", human_count_columns),
+    "non-dox",
+    ifelse(grepl("non-dox", human_count_columns), "non-dox", "dox")
+  ),
+  timepoint_minutes = as.numeric(sub(".*_(\\d+(\\.\\d+)?)h_.*", "\\1", human_count_columns)) * 60
+)
+
+# human_atac_samples is a sample sheet for DESEQ now!
+
+# Factor condition for DESEQ2 !!
+human_atac_samples <- human_atac_samples %>%
+  mutate(condition = factor(condition, levels = c("non-dox", "dox")))
+
+# matrix for Deseq2
+human_atac_dds_condition <- suppressWarnings(DESeqDataSetFromMatrix(countData = human_broad_consensus_counts, 
+                                   colData = human_atac_samples, 
+                                   design = ~ condition))
+# Run DESeq2 condition model
+human_atac_dds_condition <- suppressWarnings(DESeq(human_atac_dds_condition))
+
+```
+
+## 3.1 Extracting and analyzing DESEQ2 results
+Creating a dataframe with p-vlaues and lfc etc 
+```{r extracting DESEQ2 results, dependson="previous_chunk"}
+
+# Extract DESeq2 results
+# print the results from DESEQ which is the intercept file in the comparison and make it a data frame
+human_atac_lfc_condition <- results(human_atac_dds_condition) %>%
+  as.data.frame() %>%
+  rownames_to_column("interval_id")
+
+# Merge with broad_consensus_peaks info
+
+colnames(human_broad_consensus_peaks)[1] <- "interval_id"
+
+human_atac_lfc_condition <- merge(human_atac_lfc_condition, 
+                  human_broad_consensus_peaks %>%
+                    dplyr::select(interval_id, Gene.Name, Nearest.PromoterID, 
+                                  Distance.to.TSS, Chr, Start, End),
+                  by = "interval_id")
+
+```
+![DESESEQ2 ATAC peaks visualized in IGV](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/igv_snapshot.png)
+Result: Yeah these all look the same, which is consistent with the 58,654 common peaks between non-dox and dox samples found earlier
+
+Result: Not very convincing
+
+##### (h) analyzing results of DESEQ on ATACseq peak counts
+Now we will see how many peaks had a padj < 0.05 and 
+other features of our analyses!
+
+```{r analysis of DESEQ2 on ATAC peak counts, dependson="previous_chunk"}
+# padj histogram
+ggplot(human_atac_lfc_condition, aes(x = padj)) +
+  geom_histogram(binwidth = 0.05, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Human DESEQ2/ATAC padj Values",
+       x = "Adjusted p-value",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# p value histogram
+ggplot(human_atac_lfc_condition, aes(x = pvalue)) +
+  geom_histogram(binwidth = 0.05, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Human DESEQ2/ATAC p Values",
+       x = "p-value",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# log2foldchange histogram
+ggplot(human_atac_lfc_condition, aes(x = log2FoldChange)) +
+  geom_histogram(binwidth = 0.1, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Human DESEQ2/ATAC log2 Fold Changes",
+       x = "log2 Fold Change",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# histogram of log-transformed base mean (because the values are incredibly small)
+ggplot(human_atac_lfc_condition, aes(x = baseMean)) +
+  geom_histogram(fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Base Mean",
+       x = "Base Mean",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+![histogram of padj values](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/humandeseq2atacpadj.png)
+# no padj values at or under 0.05 :(
+
+![histogram of p values](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/humandeseq2atacpvalues.png)
+# some p values are significant but no padj values are...
+
+![histogram of base mean](/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/finalproject2/images/humandeseq2atacbasemean.png)
+# all incredibly low (could indicate low raw counts or sparse ATACseq data)

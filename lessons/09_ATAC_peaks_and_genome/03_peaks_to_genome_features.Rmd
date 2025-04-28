@@ -1,0 +1,267 @@
+---
+title: "03_Peak_genome_features"
+author: "JR"
+date: "2024-11-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/util/00_our_first_function_lesson.R")
+```
+# Start here for the final project!
+
+# Goal: To determine where in the genome our peaks live!
+We will start to explore where our ATACseq peaks reside in the human genome
+and what features they correspond to (e.g., mRNAs, lincRNA and many more to explore)
+
+# Note difference between the two peak files we have been using:
+# common peaks: represent peaks present in all samples (time-points).
+# consensus peaks: peaks present in any sample(time-point) - from NF_CORE MACS2 
+So for now we are investigating where are the regions of chromatin
+that remain accessible despite dox exposure across any time point.
+
+This is a really cool question of where do these robust and reliable peaks reside?
+
+# Let's find out where in the genome our peaks are through these steps:
+
+# Step (1) : create "common_peaks" a list of peak files in the format of GRanges
+We are basically starting where we left off last lesson!
+
+```{r create my_peaks GRange List using import_peaks custom function}
+
+# peak file "consensus_path" parameter of import_peaks function
+peak_path <- "/scratch/Shares/rinnclass/MASTER_CLASS/lessons/08_ATACseq_pipeline/00_run_pipeline/00_pipeline_run/pipeline_run/bwa/merged_library/macs2/broad_peak"
+#peak_path <- "/scratch/Shares/rinnclass/MASTER_CLASS/lessons/08_ATACseq_pipeline/00_run_pipeline/00_pipeline_run/pipeline_run/bwa/merged_library/macs2/broad_peak"
+
+# make file list (fl)
+fl <- list.files(peak_path, full.names = TRUE, pattern = ".broadPeak")
+
+# import peaks !
+my_peaks <- import_peaks(consensus_file_path = peak_path)
+
+# test common_peaks function 
+common_peaks <- find_common_peaks(my_peaks)
+
+```
+Sweet! We are all set with peak files/objects we need for our analyses !
+
+# now for genomic annotation GRanges
+
+Here we will import the gencode genome annotation (for mm10) as a GRanges.
+Then we will subset it to "genes", "mRNA", "lncRNA" 
+This will allow us to determine how many common_peaks are 
+near these genome features. Then the same concept applies to all genome features!
+# In short: we are making GRanges of genome features to use in overlaps with ATAC peaks
+
+We have done this before but will start from scratch to refresh:
+# Step (2) Creating mouse gene, lincrna, mRNA annotation GRange objects
+
+```{r create mouse genome annotation for genes, lincRNA, mRNA in GRanges format}
+
+# Loading gencode genome annotation as GRanges (takes 5 min - will save at end)
+gencode_gr_mouse <- rtracklayer::import("/scratch/Shares/rinnclass/MASTER_CLASS/GENOMES/M25/gencode.vM25.annotation.gtf")
+
+# making subset to just gene objects:
+gencode_genes_mouse <- gencode_gr_mouse[gencode_gr_mouse$type == "gene"] 
+
+# mrna_genes
+mrna_genes <- gencode_genes_mouse[gencode_genes_mouse$gene_type %in% "protein_coding"]
+
+# lincrna_genes
+lincrna_genes <- gencode_genes_mouse[gencode_genes_mouse$gene_type %in% "lincRNA"]
+
+```
+# Result: 55,401 genes, 21,895 mRNA, 5,629 lincRNAs in mouse genocde annotation 
+# Result this means that half of the gene annotations are in other catagories such as "processed_transcripts"
+
+Cool, so we have learned more about the number of genes in the mouse genome.
+
+# Step (3) : Promoters object from TSS to upstream and downstream
+This is very subjective to what "window" you create a promter around a TSS. 
+So we will start with a typical window to learn, while analyzing our ATACseq data!
+We did this previously in 08_ATACseq_Pipeline/05_ & 06_ 
+
+A good reference window is 2Kb upstream and 2Kb Downstream for transcriptional regulatory events.
+Let's make a promoter window around each of the gene types we just loaded !
+
+```{r Creating promoter GRanges for genes, lncrna, mrNA}
+
+# mrna_promoters
+mrna_promoters <- promoters(mrna_genes, upstream = 2000, downstream = 2000)
+
+# gene_promoters
+gene_promoters <- promoters(gencode_genes_mouse, upstream = 2000, downstream = 2000)
+
+# lncRNA gene_promoters
+lincrna_gene_promoters <- promoters(lincrna_genes, upstream = 2000, downstream = 2000)
+
+# Nice now we have a lot of Genome Features in GRanges format - ready to start overlapping.
+```
+
+# Now we are set to start overlapping.
+Let's ask several questions to explore the data and learn some skills !
+
+# Question 1: How many common peaks overlap mRNA vs lincRNA promoters
+```{r ATAC Peak Overlap lincRNA and mRNA promoters}
+
+lincrna_atac_ov <- findOverlaps(lincrna_gene_promoters, common_peaks)
+
+length(lincrna_gene_promoters)
+# 5,629 entries
+
+length(lincrna_atac_ov)
+# 1,073 overlaps about 20% of lincrna promters have atac peaks in all samples.
+(1073)/(5629)
+
+# let's check our overlap numbers:
+length(lincrna_atac_ov@to)
+length(lincrna_atac_ov@from)
+# Cool all looks good !
+
+
+# Now let's check mRNA promoter overlaps# let's check our overlap numbers:
+mrna_atac_ov <- findOverlaps(mrna_promoters, common_peaks)
+length(mrna_atac_ov)
+length(mrna_atac_ov@to)
+length(mrna_atac_ov@from)
+# 13,700 overlaps ! That's a lot !
+
+# checking percentage of promoter overlaps
+(13700)/(21859)
+# also
+(length(mrna_atac_ov))/ ((length(mrna_genes)))
+# 63% of mRNA promoters have overlaps with an ATAC peak in all samples!
+# NOTE not exactly the same which is strange .... 61.2% vs 62.6% 
+# That is way more than lincRNA. This raises quesiton of which ones were expresses?
+# We will get to that later.
+
+# percentage of common peaks with promoter overlaps 
+(21859 + 1073) / (37152)
+# 62% ! That's a lot consider how small this space is overall in the genome
+```
+# Result: 63% of mRNA promoters have ATAC peak promoter overlap 
+# Result: 20% of lincRNA promoters have ATAC peak promoter overlap
+# Result: Total of ~22,500 out of 37,152 common peaks 
+# Result: Stable ATAC peaks in all samples are biased to promtoers 
+
+# What is the percentage of overlaps with all genes?
+```{r all gene overlap with common peaks}
+
+gene_promoter_ov <- findOverlaps(gene_promoters, common_peaks)
+length(gene_promoter_ov)
+length(gene_promoter_ov@to)
+length(gene_promoter_ov@from)
+
+# That is 19,126 overlaps of 55,401 gene annotations
+(19126)/(55401)
+# 35% ! Lower than mRNAs alone !
+```
+# Result: 35% of gene promoters have ATAC peak overlaps in all samples
+# Result: This is 2 times lower than what we observed for mRNA
+# Result: mRNA promoters are highly enriched in commone mouse ESC ATAC sites
+
+
+# Now let's compare the overlaps from our "find_common_peaks()" custom function
+```{r finding overlaps with "find_common_peaks" function}
+
+# need list of GRanges as input so merging these two compare each other
+gr_list <- list(mrna_promoter = mrna_promoters, common = common_peaks)
+
+# finding common peaks
+mrna_atac_ov_common <- find_common_peaks(gr_list)
+length(mrna_atac_ov_common)
+# Ok we see 13,316 overlaps compared to 13,700 using findOverlaps
+
+# Let's see if find_overlaps approach and common overlap.
+# strategy put them all in a list and then use common overlap 
+
+gr_list2 <- list(sample1 = mrna_promoters, sample2 = common_peaks, sample3 = mrna_atac_ov_common)
+
+# running find common
+mrna_atac_ov_common2 <- find_common_peaks(gr_list2)
+length(mrna_atac_ov_common2)
+# Same 13,316 - this means all common were present in findOverlaps
+```
+Nice we have analyzed and found best strategy for finding common peaks.
+
+# Now let's nicely repeat the process for gene, lincRNA and mRNA !
+Next we want to visualize and make sure peaks are correctly called on mRNA and lncRNA promoters
+First we need to do the common_peaks function to get all the objects in right format.
+Then make a bed file below : almost there let's go !
+
+# (a) GENE overlaps: common_peak ATAC peaks and gene promoter overlaps
+# IMPORTANT : PEAKS need to come first !!
+```{r using common_peaks function to create objects to be made into bed files}
+
+# make a list of gene_promoters and common_peaks
+gr_list_genes <- list(sample1 = common_peaks, sample2 = gene_promoters)
+# find common overlaps
+all_gene_common_ov <- find_common_peaks(gr_list_genes)
+length(all_gene_common_ov)
+# 14,761 smaller than 19,126 because of ordering!
+
+# create a bed file for peaks:
+rtracklayer::export(all_gene_common_ov, con = "results/gene_common_ov.bed", format = "BED")
+```
+
+# (b) lincRNA promoter ATAC overlap bed
+```{r lincrna promoter common overlaps and bed file}
+
+# make a list of lincrna_promoters and common_peaks
+gr_list_genes <- list(sample1 = common_peaks, sample2 = lincrna_gene_promoters)
+# find common overlaps
+lincrna_common_ov <- find_common_peaks(gr_list_genes)
+length(lincrna_common_ov)
+# 1035 about the same 
+
+# create a bed file for peaks:
+rtracklayer::export(lincrna_common_ov, con = "results/lincrna_common_ov.bed", format = "BED")
+```
+
+# (c) mrna promoter ATAC overlap
+```{r mrna promoter common overlaps and bed file}
+
+# make a list of lincrna_promoters and common_peaks
+gr_list_genes <- list(sample1 = common_peaks, sample2 = mrna_promoters)
+# find common overlaps
+mrna_common_ov <- find_common_peaks(gr_list_genes)
+length(mrna_common_ov)
+# 12,000 smaller but not too far off
+
+# create a bed file for peaks:
+rtracklayer::export(mrna_common_ov, con = "results/mrna_common_ov.bed", format = "BED")
+
+```
+
+# (d) let's save our data / session !
+We will need some key objects for future analyses so let's save!
+```{r saving env objects}
+
+save(lincrna_genes, lincrna_gene_promoters, mrna_genes, mrna_promoters, gene_promoters, gencode_genes_mouse, common_peaks, mrna_common_ov, my_peaks, lincrna_common_ov, all_gene_common_ov, file = "results/key_mouse_atac_data.Rdata" )
+```
+
+
+# (e) Now let's take a look at our peak overlaps in IGV (common practice !)
+First we need to make some handy bed files of the overlaps we did.
+
+# Let's ask the following questions about our peak files (feel free to take notes here!):
+First we need to load all 4 .bed files we have created and all the bigWig files into IGV.
+Also please load the consensus peaks file we used last time (any peak in any sample)
+
+# Questions to explore:
+(a) Find a common peak that is also called as mRNA
+  - how do these peaks look? Where do they appear to be relative to nearby consensus peaks?
+
+(b) Find a common peak that is also called a lncRNA
+   - how do these peaks look? Where do they appear to be relative to nearby consensus peaks?
+   
+(c) Do any peaks get called as both lincrna and mRNA?
+  - do this in code as well :) !
+
+(d) How could any lncRNA and mRNA promoter regions both be called as overlaps?
+  # Hint BC1
+  
+

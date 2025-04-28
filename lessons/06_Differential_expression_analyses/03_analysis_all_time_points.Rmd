@@ -1,0 +1,202 @@
+---
+title: "03_analysis_all_time_points"
+author: "JR"
+date: "2024-07-14"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DESeq2)
+library(readr)
+library(magrittr)
+library(tibble)
+library(dplyr)
+library(ggplot2)
+```
+
+# Loading counts matrix raw input from Salmon (see pipeline documentation)
+```{r loading counts objects}
+
+#IMPORTANT Raw counts file
+counts_matrix <- read.table("/scratch/Shares/rinnclass/MASTER_CLASS/STUDENTS/reanna/MASTER_CLASS/data/salmon.merged.gene_counts.tsv", header=TRUE, row.names=1)
+
+```
+
+# 1 IMPORTANT : CREATE Gene name to gene id conversion table.
+This will archive all genes in the starting analysis 
+# Note this would only change upon a different genome annotation as input into NF_CORE RNAseq pipeline
+```{r creating g2s file from counts matrix}
+
+# Note making data frame from index other files
+g2s <- data.frame(
+  gene_id = rownames(counts_matrix),
+  gene_name = counts_matrix[ , 1]
+)
+view(g2s)
+
+```
+
+# 2 Now that g2s is made let's clean up our counts matrix
+```{r removing gene_name column and rounding counts to integers}
+# remove gene_name column
+
+counts_matrix <- counts_matrix[,-1]
+#also
+counts_matrix <- counts_matrix %>%
+  select(-gene_name)
+
+# Round counts to integer mode required for DESEQ2
+counts_integer <- round(counts_matrix)
+View(counts_matrix)
+View(counts_integer)
+
+```
+
+# Loading Deseq_sample_sheet
+```{r loading in sample sheet for DESEQ2}
+load("../05_RNAseq_in_R_studio/results/deseq_samples.RData", verbose = T)
+view(deseq_samples)
+# oops that loaded a count matrix that isn't in integer -let's fix that
+counts_integer <- round(counts_matrix)
+
+```
+
+# 3) Factor Samples (just in case - double check if already factored)
+```{r}
+
+deseq_samples$time_point <- factor(deseq_samples$time_point)
+deseq_samples$replicate <- factor(deseq_samples$replicate)
+
+```
+
+# 4) Make sure rows and columns are ordered for analysis
+```{r checking that sample sheet and counts match rows and cols respectively}
+
+
+# Check ordering
+  stopifnot(all(colnames(counts_integer) == rownames(deseq_samples$sample_id)))
+
+# Nice our columns in the counts are the same as rows in sample_id
+
+```
+
+
+# 4) Run Deseq Model (time_point)
+```{r run DESEQ2}
+
+dds_time_point <- DESeqDataSetFromMatrix(countData = counts_integer,
+                              colData = deseq_samples,
+                              design = ~ time_point)
+
+dds_time_point <- DESeq(dds_time_point)
+
+```
+
+# 5 Compile all results 0-vs-12, 0-vs-24, 0-vs-48, 0-vs-96
+First we are going to make a datframe structure to store the results
+# Note this is a common strategy before a for-loop : make file to populate
+
+```{r viewing results and making a data frame to compile all results from each time}
+
+# Let's find the names of the results we want
+result_names <- resultsNames(dds_time_point)
+view(result_names)
+# Let's get rid of intercept
+results_names <- result_names[-1]
+view(results_names)
+# Now the empty data frame with values we want to grab from results
+
+res_df <- data.frame("gene_id" = character(), 
+                     "baseMean" = numeric(), 
+                     "log2FoldChange" = numeric(), 
+                     "lfcSE" = numeric(),
+                     "stat" = numeric(),
+                     "pvalue" = numeric(),
+                     "padj" = numeric(),
+                     "gene_name" = character(),
+                     "result_name" = character())
+
+
+view(res_df)
+
+```
+
+# 6 FOR-LOOP: for-loop to put the values for each time point analysis
+```{r Learning for-loops to compile all results from all time points}
+
+# Let's figure out each step - for loops are common practice so let's get to know them
+
+for(i in 1:length(results_names)) {
+  # grabbing the result name for i in for loop - will repeat for all result names
+  results_name <- results_names[i]
+  # grabbing the results using DESEQ2 results function for time point i
+  res <- results(dds_time_point, name = results_name)
+  # creating a temporary results data frame in the for loop memory
+  tmp_res_df <- res %>% 
+    # converting this to dataframe
+    as.data.frame() %>%
+    # Moving the gene_id into a column now called gene_id
+    rownames_to_column("gene_id") %>%
+    # Merge in g2s (by gene_id)
+    merge(g2s) %>%
+    # Add a column to track result name for i
+    mutate(result_name = results_name)
+  # This will keep adding new results (as rows) for each additional i in for loop
+  res_df <- bind_rows(res_df, tmp_res_df)
+  
+}
+
+# Let's take a look at what we got !
+view(res_df)
+```
+# Result: we now have all our deseq2 results in res_df object !
+# Take a look and start to explore 
+
+
+# It is always good practice to check on NAs that can confound data type (character vs integer etc)
+
+```{r checking NAs}
+# Checking NAs
+  sum(is.na(res_df$padj))
+  
+  # If we do want to clear them out:
+  # NoNA <- complete.cases(res_df)
+
+```
+
+# saving results in res_df
+```{r saving our results data frame}
+save(res_df, file = "results/time_point_res_df.RData")
+# let's also save our DDS
+save(dds_time_point, file = "results/dds_time_point_mouse_long.RData")
+```
+
+# Nice we have all our results now let's go over what it all means :) !
+The key information we have is column:
+Basemean: a measure of how much the gene was expressed
+Log2FoldChange: how much the gene went up or down in a given comparison of time
+Lfsce: shrunken log fold change
+
+https://hbctraining.github.io/DGE_workshop/lessons/05_DGE_DESeq2_analysis2.html#:~:text=Shrunken%20log2%20foldchanges%20(LFC),High%20dispersion%20values
+
+Pvalue
+Padj : adjusted pval (what we will be using)
+
+result_name: this allows to have the values for each time point comparison tracked
+
+########## ExceRcise #########
+# Explore your results 
+Which gene has the lowest padj
+Which gene has the highest fold change
+What are these genes?
+
+
+
+
+
+
+
+
